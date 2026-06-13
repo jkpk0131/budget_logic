@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <meta name="theme-color" content="#0C0E14">
+  <link rel="manifest" href="manifest.json">
+  <title>Monthly Budget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #0C0E14; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; color: #E0E0E8; overscroll-behavior: none; }
+    #app { min-height: 100%; }
+    input, select, button { font-family: inherit; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { h, render } from 'https://esm.sh/preact@10.19.6';
+import { useState, useEffect, useCallback } from 'https://esm.sh/preact@10.19.6/hooks';
+import htm from 'https://esm.sh/htm@3.1.1';
+const html = htm.bind(h);
+
+// ── Storage keys ──────────────────────────────────────────
+const LS_CONFIG = 'budget_config';
+const LS_TXNS   = 'budget_txns';
+
+// ── Helpers ───────────────────────────────────────────────
+const fmt = n => `$${Math.abs(n).toFixed(2)}`;
+
+function localDateKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function getTime() {
+  return new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+}
+
+function getDaysLeft(endDate) {
+  const end   = new Date(endDate + 'T00:00:00');
+  const today = new Date(localDateKey() + 'T00:00:00');
+  return Math.max(0, Math.ceil((end - today) / 86400000) + 1);
+}
+
+function derivePools(txns, cfg) {
+  if (!cfg) return { spendPool: 0, bufferPool: 0, savingsPool: 0 };
+  const todayKey = localDateKey();
+  const spendByDate = {};
+  txns.forEach(t => {
+    if (t.pool === 'spend')
+      spendByDate[t.date] = parseFloat(((spendByDate[t.date]||0) + t.amount).toFixed(2));
+  });
+
+  let spendPool   = cfg.initialSpend;
+  let savingsPool = 0;
+
+  let cursor = new Date(cfg.startDate + 'T00:00:00');
+  const today = new Date(todayKey + 'T00:00:00');
+
+  while (cursor <= today) {
+    const dk = localDateKey(cursor);
+    const isToday = dk === todayKey;
+    const daySpend = spendByDate[dk] || 0;
+
+    spendPool = parseFloat((spendPool - daySpend).toFixed(2));
+
+    if (!isToday) {
+      const saved = parseFloat(Math.max(0, cfg.dailyCap - daySpend).toFixed(2));
+      spendPool   = parseFloat((spendPool - saved).toFixed(2));
+      savingsPool = parseFloat((savingsPool + saved).toFixed(2));
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Buffer + overflow
+  let bufferPool = cfg.initialBuffer;
+  let overflow   = 0;
+  [...txns].filter(t => t.pool === 'buffer').sort((a,b) => a.id - b.id).forEach(t => {
+    if (bufferPool >= t.amount) {
+      bufferPool = parseFloat((bufferPool - t.amount).toFixed(2));
+    } else {
+      overflow   = parseFloat((overflow + t.amount - bufferPool).toFixed(2));
+      bufferPool = 0;
+    }
+  });
+  spendPool = parseFloat((spendPool - overflow).toFixed(2));
+
+  return { spendPool, bufferPool, savingsPool };
+}
+
+// ── Setup Screen ──────────────────────────────────────────
+function SetupScreen({ onSave }) {
+  const today = localDateKey();
+  const [form, setForm] = useState({
+    startDate: today,
+    endDate: '',
+    dailyCap: '15',
+    initialSpend: '',
+    initialBuffer: '',
+    shortcuts: [
+      { label: '☕ 커피', amount: '2.81', pool: 'spend' },
+      { label: '🍗 치킨', amount: '27',   pool: 'buffer' },
+    ]
+  });
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const setShortcut = (i, k, v) => {
+    const s = [...form.shortcuts];
+    s[i] = { ...s[i], [k]: v };
+    setForm(p => ({ ...p, shortcuts: s }));
+  };
+  const addShortcut = () => setForm(p => ({ ...p, shortcuts: [...p.shortcuts, { label:'', amount:'', pool:'spend' }] }));
+  const delShortcut = i => setForm(p => ({ ...p, shortcuts: p.shortcuts.filter((_,j)=>j!==i) }));
+
+  const save = () => {
+    if (!form.startDate || !form.endDate || !form.dailyCap || !form.initialSpend || !form.initialBuffer) return alert('모든 항목을 입력해주세요.');
+    onSave({
+      startDate:     form.startDate,
+      endDate:       form.endDate,
+      dailyCap:      parseFloat(form.dailyCap),
+      initialSpend:  parseFloat(form.initialSpend),
+      initialBuffer: parseFloat(form.initialBuffer),
+      shortcuts: form.shortcuts.filter(s => s.label && s.amount).map(s => ({ ...s, amount: parseFloat(s.amount) })),
+    });
+  };
+
+  const inp = (extra={}) => ({ style: { width:'100%', background:'#0C0E14', border:'1px solid #2A2A38', borderRadius:8, padding:'11px 12px', color:'#E0E0E8', fontSize:14, outline:'none', ...extra.style }, ...extra });
+
+  return html`
+    <div style=${{ padding:'28px 18px 48px', maxWidth:420, margin:'0 auto' }}>
+      <div style=${{ fontSize:11, color:'#444', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6 }}>Monthly Budget</div>
+      <div style=${{ fontSize:22, fontWeight:800, marginBottom:24 }}>예산 설정</div>
+
+      ${[
+        ['기간 시작일', html`<input type="date" value=${form.startDate} max=${form.endDate||undefined} onInput=${e=>set('startDate',e.target.value)} ...${inp()} />`],
+        ['기간 종료일', html`<input type="date" value=${form.endDate} min=${form.startDate||undefined} onInput=${e=>set('endDate',e.target.value)} ...${inp()} />`],
+        ['일일 한도 ($)', html`<input type="number" placeholder="예: 15" value=${form.dailyCap} onInput=${e=>set('dailyCap',e.target.value)} ...${inp()} />`],
+        ['소비 풀 초기값 ($)', html`<input type="number" placeholder="예: 420" value=${form.initialSpend} onInput=${e=>set('initialSpend',e.target.value)} ...${inp()} />`],
+        ['버퍼 초기값 ($)', html`<input type="number" placeholder="예: 210" value=${form.initialBuffer} onInput=${e=>set('initialBuffer',e.target.value)} ...${inp()} />`],
+      ].map(([label, field]) => html`
+        <div style=${{ marginBottom:14 }}>
+          <div style=${{ fontSize:11, color:'#555', marginBottom:6, letterSpacing:'0.05em' }}>${label}</div>
+          ${field}
+        </div>
+      `)}
+
+      <div style=${{ marginBottom:8 }}>
+        <div style=${{ fontSize:11, color:'#555', marginBottom:10, letterSpacing:'0.05em' }}>빠른 입력 단축키</div>
+        ${form.shortcuts.map((s,i) => html`
+          <div key=${i} style=${{ display:'flex', gap:6, marginBottom:8, alignItems:'center' }}>
+            <input placeholder="이름" value=${s.label} onInput=${e=>setShortcut(i,'label',e.target.value)}
+              style=${{ flex:2, background:'#0C0E14', border:'1px solid #2A2A38', borderRadius:8, padding:'9px 10px', color:'#E0E0E8', fontSize:13, outline:'none' }} />
+            <input type="number" placeholder="금액" value=${s.amount} onInput=${e=>setShortcut(i,'amount',e.target.value)}
+              style=${{ flex:1.2, background:'#0C0E14', border:'1px solid #2A2A38', borderRadius:8, padding:'9px 10px', color:'#E0E0E8', fontSize:13, outline:'none' }} />
+            <select value=${s.pool} onChange=${e=>setShortcut(i,'pool',e.target.value)}
+              style=${{ flex:1.2, background:'#0C0E14', border:'1px solid #2A2A38', borderRadius:8, padding:'9px 8px', color:'#E0E0E8', fontSize:12, outline:'none' }}>
+              <option value="spend">소비</option>
+              <option value="buffer">버퍼</option>
+            </select>
+            <button onClick=${()=>delShortcut(i)} style=${{ background:'none', border:'1px solid #2A2A38', borderRadius:6, padding:'8px 10px', color:'#555', cursor:'pointer', fontSize:13 }}>✕</button>
+          </div>
+        `)}
+        <button onClick=${addShortcut} style=${{ background:'none', border:'1px dashed #2A2A38', borderRadius:8, padding:'9px 14px', color:'#555', cursor:'pointer', fontSize:13, width:'100%', marginTop:4 }}>+ 단축키 추가</button>
+      </div>
+
+      <button onClick=${save} style=${{ width:'100%', background:'linear-gradient(135deg,#1A3A6A,#0E2E54)', border:'1px solid #2A5080', borderRadius:12, padding:14, color:'#5AB0FF', fontSize:16, fontWeight:700, cursor:'pointer', marginTop:20 }}>
+        시작하기
+      </button>
+    </div>
+  `;
+}
+
+// ── Main Screen ───────────────────────────────────────────
+function MainScreen({ cfg, txns, setTxns, onSettings }) {
+  const todayKey = localDateKey();
+  const [label,  setLabel]  = useState('');
+  const [amount, setAmount] = useState('');
+  const [pool,   setPool]   = useState('spend');
+  const [date,   setDate]   = useState(todayKey);
+  const [toast,  setToast]  = useState(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const flash = msg => { setToast(msg); setTimeout(()=>setToast(null), 2800); };
+
+  const { spendPool, bufferPool, savingsPool } = derivePools(txns, cfg);
+  const daysLeft   = getDaysLeft(cfg.endDate);
+  const todayTxns  = txns.filter(t => t.date === todayKey);
+  const todaySpend = todayTxns.filter(t=>t.pool==='spend').reduce((s,t)=>s+t.amount,0);
+  const todayBuf   = todayTxns.filter(t=>t.pool==='buffer').reduce((s,t)=>s+t.amount,0);
+  const capLeft    = parseFloat((cfg.dailyCap - todaySpend).toFixed(2));
+  const spendPct   = Math.min(100,(spendPool/cfg.initialSpend)*100);
+  const bufPct     = Math.min(100,(bufferPool/cfg.initialBuffer)*100);
+
+  const addTxn = (lbl, amt, poolType, dateStr) => {
+    const txn = { id:Date.now(), date:dateStr, time: dateStr===todayKey ? getTime() : '', label:lbl, amount:parseFloat(parseFloat(amt).toFixed(2)), pool:poolType };
+    setTxns(prev => [...prev,txn].sort((a,b) => b.date.localeCompare(a.date)||b.id-a.id));
+    flash(`✅ ${lbl} ${fmt(txn.amount)}${dateStr!==todayKey ? ` (${dateStr})` : ''}`);
+  };
+
+  const delTxn = txn => { setTxns(prev=>prev.filter(t=>t.id!==txn.id)); flash(`🗑 ${txn.label} 취소`); };
+
+  const handleManual = () => {
+    if (!label.trim()||!amount||isNaN(parseFloat(amount))) return;
+    addTxn(label.trim(), parseFloat(amount), pool, date);
+    setLabel(''); setAmount(''); setPool('spend'); setDate(todayKey);
+  };
+
+  const displayTxns = showAll ? txns : txns.slice(0,12);
+
+  const card = (bg, border) => ({ background:bg, borderRadius:18, padding:'18px 14px', border:`1px solid ${border}` });
+  const lbl  = color => ({ fontSize:10, color, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 });
+  const big  = color => ({ fontSize:28, fontWeight:900, color, lineHeight:1, letterSpacing:'-0.03em' });
+  const inp  = extra => ({ background:'#0C0E14', border:'1px solid #1E1E28', borderRadius:8, padding:'11px 12px', color:'#E0E0E8', fontSize:14, outline:'none', ...extra });
+
+  return html`
+    <div style=${{ padding:'env(safe-area-inset-top,24px) 16px 48px', maxWidth:420, margin:'0 auto' }}>
+
+      <!-- Header -->
+      <div style=${{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:22 }}>
+        <div>
+          <div style=${{ fontSize:11, color:'#444', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:4 }}>Monthly Budget</div>
+          <div style=${{ fontSize:20, fontWeight:800, letterSpacing:'-0.02em' }}>
+            ${new Date().toLocaleDateString('ko-KR',{month:'long',day:'numeric'})}
+          </div>
+          <div style=${{ fontSize:11, color:'#555', marginTop:3 }}>D‑${daysLeft} · ${cfg.endDate}까지</div>
+        </div>
+        <button onClick=${onSettings} style=${{ background:'none', border:'1px solid #222', borderRadius:8, padding:'7px 11px', color:'#555', fontSize:18, cursor:'pointer' }}>⚙️</button>
+      </div>
+
+      <!-- Pool Cards -->
+      <div style=${{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+        <!-- 소비 풀 -->
+        <div style=${card('linear-gradient(160deg,#0B2444,#0E2E54)','#163658')}>
+          <div style=${lbl('#3A7AC0')}>소비 풀</div>
+          <div style=${big('#D6EEFF')}>${fmt(spendPool)}</div>
+          <div style=${{ marginTop:12, height:3, background:'#0A1C33', borderRadius:2, overflow:'hidden' }}>
+            <div style=${{ height:'100%', width:`${spendPct}%`, background:'linear-gradient(90deg,#2A6FBF,#5AB0FF)', borderRadius:2, transition:'width 0.4s' }} />
+          </div>
+          <div style=${{ marginTop:7, fontSize:11, color:'#3A7AC0' }}>한도 <span style=${{ fontWeight:700, color:'#5AB0FF' }}>${fmt(cfg.dailyCap)}/일</span></div>
+        </div>
+
+        <!-- 버퍼 -->
+        <div style=${card('linear-gradient(160deg,#2C1900,#3A2100)','#5A3A00')}>
+          <div style=${lbl('#C08000')}>버퍼</div>
+          <div style=${big('#FFEDAA')}>${fmt(bufferPool)}</div>
+          <div style=${{ marginTop:12, height:3, background:'#1E1000', borderRadius:2, overflow:'hidden' }}>
+            <div style=${{ height:'100%', width:`${bufPct}%`, background:'linear-gradient(90deg,#B07000,#F5B800)', borderRadius:2, transition:'width 0.4s' }} />
+          </div>
+          <div style=${{ marginTop:7, fontSize:11, color:'#C08000' }}>유희 · 외식</div>
+        </div>
+      </div>
+
+      <!-- 저축 풀 -->
+      <div style=${{ ...card('linear-gradient(160deg,#0A2010,#0E2A18)','#1A4A28'), marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div>
+          <div style=${lbl('#3A9A5A')}>저축 풀</div>
+          <div style=${{ fontSize:32, fontWeight:900, color:'#AAFFC4', lineHeight:1, letterSpacing:'-0.03em' }}>${fmt(savingsPool)}</div>
+          <div style=${{ fontSize:11, color:'#3A7A4A', marginTop:6 }}>$${cfg.dailyCap} 미만 지출일 자동 적립</div>
+        </div>
+        <div style=${{ fontSize:28 }}>💰</div>
+      </div>
+
+      <!-- 오늘 요약 -->
+      <div style=${{ background:'#10121A', borderRadius:12, padding:'12px 14px', marginBottom:14, display:'flex' }}>
+        ${[
+          ['오늘 소비', fmt(todaySpend), '#4A9EF5'],
+          ['오늘 버퍼', fmt(todayBuf),   '#F5B800'],
+          ['한도 잔여', capLeft<0 ? `-${fmt(Math.abs(capLeft))}` : fmt(capLeft), capLeft<0 ? '#FF5A5A' : capLeft<5 ? '#F5B800' : '#5AFF8A'],
+        ].map(([t,v,c],i) => html`
+          <div key=${i} style=${{ flex:1, textAlign:'center' }}>
+            <div style=${{ fontSize:10, color:'#444', marginBottom:4 }}>${t}</div>
+            <div style=${{ fontSize:17, fontWeight:800, color:c }}>${v}</div>
+          </div>
+        `)}
+      </div>
+
+      <!-- 빠른 입력 -->
+      ${cfg.shortcuts?.length ? html`
+        <div style=${{ marginBottom:14 }}>
+          <div style=${{ fontSize:10, color:'#444', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.08em' }}>빠른 입력</div>
+          <div style=${{ display:'flex', gap:8 }}>
+            ${cfg.shortcuts.map((q,i) => html`
+              <button key=${i} onClick=${()=>addTxn(q.label,q.amount,q.pool,todayKey)}
+                style=${{ flex:1, background:'#16161E', border:'1px solid #252530', borderRadius:12, padding:'12px 8px', color:'#E0E0E8', fontSize:13, cursor:'pointer', fontWeight:700, lineHeight:1.4 }}>
+                ${q.label}
+                <div style=${{ fontSize:11, color:'#555', fontWeight:400, marginTop:2 }}>${fmt(q.amount)}</div>
+              </button>
+            `)}
+          </div>
+        </div>
+      ` : null}
+
+      <!-- 직접 입력 -->
+      <div style=${{ background:'#10121A', borderRadius:14, padding:14, marginBottom:20 }}>
+        <div style=${{ fontSize:10, color:'#444', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.08em' }}>직접 입력</div>
+        <input placeholder="항목" value=${label} onInput=${e=>setLabel(e.target.value)}
+          onKeyDown=${e=>e.key==='Enter'&&handleManual()}
+          style=${{ ...inp({ width:'100%', marginBottom:8 }) }} />
+        <div style=${{ display:'flex', gap:8, marginBottom:8 }}>
+          <input type="number" placeholder="금액" value=${amount} onInput=${e=>setAmount(e.target.value)}
+            onKeyDown=${e=>e.key==='Enter'&&handleManual()}
+            style=${inp({ flex:1 })} />
+          <select value=${pool} onChange=${e=>setPool(e.target.value)} style=${inp({ flex:1 })}>
+            <option value="spend">소비 풀</option>
+            <option value="buffer">버퍼</option>
+          </select>
+        </div>
+        <div style=${{ marginBottom:8 }}>
+          <input type="date" value=${date} onInput=${e=>setDate(e.target.value)}
+            min=${cfg.startDate} max=${todayKey}
+            style=${{ ...inp({ width:'100%', border: date!==todayKey ? '1px solid #5A3A00':'1px solid #1E1E28', color: date!==todayKey ? '#F5B800':'#E0E0E8' }) }} />
+          ${date !== todayKey ? html`<div style=${{ fontSize:11, color:'#F5B800', marginTop:4 }}>⏮ 과거 날짜 입력 중</div>` : null}
+        </div>
+        <button onClick=${handleManual}
+          style=${{ width:'100%', background:'#0E2E54', border:'1px solid #163658', borderRadius:8, padding:11, color:'#5AB0FF', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+          기록
+        </button>
+      </div>
+
+      <!-- 내역 -->
+      ${txns.length ? html`
+        <div>
+          <div style=${{ fontSize:10, color:'#444', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.08em' }}>내역</div>
+          ${displayTxns.map(t => html`
+            <div key=${t.id} style=${{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #14141C' }}>
+              <div style=${{ flex:1 }}>
+                <div style=${{ fontSize:14, fontWeight:600 }}>${t.label}</div>
+                <div style=${{ fontSize:11, color:'#444', marginTop:2 }}>
+                  ${t.date===todayKey ? (t.time||'오늘') : t.date} · ${t.pool==='buffer' ? '버퍼' : '소비 풀'}
+                </div>
+              </div>
+              <div style=${{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style=${{ fontSize:15, fontWeight:800, color: t.pool==='buffer' ? '#F5B800':'#4A9EF5' }}>−${fmt(t.amount)}</div>
+                <button onClick=${()=>delTxn(t)} style=${{ background:'none', border:'1px solid #2A2A38', borderRadius:6, padding:'4px 8px', color:'#555', fontSize:11, cursor:'pointer' }}>취소</button>
+              </div>
+            </div>
+          `)}
+          ${txns.length > 12 ? html`
+            <button onClick=${()=>setShowAll(!showAll)} style=${{ width:'100%', background:'none', border:'none', color:'#444', fontSize:12, cursor:'pointer', padding:'12px 0' }}>
+              ${showAll ? '접기' : `+${txns.length-12}개 더 보기`}
+            </button>
+          ` : null}
+        </div>
+      ` : null}
+
+      <!-- Toast -->
+      ${toast ? html`
+        <div style=${{ position:'fixed', bottom:32, left:'50%', transform:'translateX(-50%)', background:'#1A1A26', border:'1px solid #2A2A38', borderRadius:12, padding:'11px 18px', fontSize:13, color:'#E0E0E8', whiteSpace:'nowrap', boxShadow:'0 4px 24px rgba(0,0,0,0.5)', zIndex:999 }}>
+          ${toast}
+        </div>
+      ` : null}
+    </div>
+  `;
+}
+
+// ── Settings Screen ───────────────────────────────────────
+function SettingsScreen({ cfg, txns, onBack, onReset, onExport, onImport }) {
+  const [importing, setImporting] = useState(false);
+  const [importText, setImportText] = useState('');
+
+  const doExport = () => {
+    const data = JSON.stringify({ config: cfg, transactions: txns }, null, 2);
+    navigator.clipboard?.writeText(data).then(() => alert('클립보드에 복사됨')).catch(() => alert(data));
+  };
+
+  const doImport = () => {
+    try {
+      const parsed = JSON.parse(importText);
+      if (parsed.config && parsed.transactions) { onImport(parsed); setImporting(false); }
+      else alert('형식 오류');
+    } catch { alert('JSON 파싱 실패'); }
+  };
+
+  return html`
+    <div style=${{ padding:'28px 18px 48px', maxWidth:420, margin:'0 auto' }}>
+      <div style=${{ display:'flex', alignItems:'center', gap:12, marginBottom:24 }}>
+        <button onClick=${onBack} style=${{ background:'none', border:'none', color:'#5AB0FF', fontSize:16, cursor:'pointer' }}>← 뒤로</button>
+        <div style=${{ fontSize:18, fontWeight:800 }}>설정</div>
+      </div>
+
+      <div style=${{ background:'#10121A', borderRadius:14, padding:16, marginBottom:14 }}>
+        <div style=${{ fontSize:12, fontWeight:600, color:'#888', marginBottom:12 }}>현재 설정</div>
+        ${[
+          ['기간', `${cfg.startDate} ~ ${cfg.endDate}`],
+          ['일일 한도', fmt(cfg.dailyCap)],
+          ['소비 풀 초기값', fmt(cfg.initialSpend)],
+          ['버퍼 초기값', fmt(cfg.initialBuffer)],
+          ['단축키 수', `${cfg.shortcuts?.length || 0}개`],
+        ].map(([k,v]) => html`
+          <div style=${{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #1A1A24' }}>
+            <span style=${{ fontSize:13, color:'#888' }}>${k}</span>
+            <span style=${{ fontSize:13, fontWeight:600 }}>${v}</span>
+          </div>
+        `)}
+      </div>
+
+      <button onClick=${doExport} style=${{ width:'100%', background:'#10121A', border:'1px solid #2A2A38', borderRadius:10, padding:12, color:'#E0E0E8', fontSize:14, cursor:'pointer', marginBottom:10 }}>
+        📋 데이터 내보내기 (클립보드)
+      </button>
+
+      <button onClick=${()=>setImporting(!importing)} style=${{ width:'100%', background:'#10121A', border:'1px solid #2A2A38', borderRadius:10, padding:12, color:'#E0E0E8', fontSize:14, cursor:'pointer', marginBottom: importing?8:10 }}>
+        📥 데이터 가져오기
+      </button>
+
+      ${importing ? html`
+        <textarea value=${importText} onInput=${e=>setImportText(e.target.value)}
+          placeholder="내보내기한 JSON 붙여넣기..."
+          style=${{ width:'100%', background:'#0C0E14', border:'1px solid #2A2A38', borderRadius:8, padding:10, color:'#E0E0E8', fontSize:12, outline:'none', height:100, resize:'none', marginBottom:8 }} />
+        <button onClick=${doImport} style=${{ width:'100%', background:'#0E2E54', border:'1px solid #163658', borderRadius:8, padding:11, color:'#5AB0FF', fontSize:14, fontWeight:700, cursor:'pointer', marginBottom:10 }}>
+          가져오기 실행
+        </button>
+      ` : null}
+
+      <button onClick=${onReset} style=${{ width:'100%', background:'none', border:'1px solid #3A1A1A', borderRadius:10, padding:12, color:'#FF5A5A', fontSize:14, cursor:'pointer' }}>
+        🗑 전체 초기화
+      </button>
+    </div>
+  `;
+}
+
+// ── Root App ──────────────────────────────────────────────
+function App() {
+  const [cfg,    setCfg]    = useState(() => { try { return JSON.parse(localStorage.getItem(LS_CONFIG)||'null'); } catch { return null; } });
+  const [txns,   setTxnsRaw] = useState(() => { try { return JSON.parse(localStorage.getItem(LS_TXNS)||'[]');   } catch { return [];   } });
+  const [screen, setScreen] = useState('main'); // 'main' | 'settings'
+
+  const setTxns = useCallback(fn => {
+    setTxnsRaw(prev => {
+      const next = typeof fn === 'function' ? fn(prev) : fn;
+      localStorage.setItem(LS_TXNS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const saveConfig = newCfg => {
+    localStorage.setItem(LS_CONFIG, JSON.stringify(newCfg));
+    setCfg(newCfg);
+  };
+
+  const reset = () => {
+    if (!window.confirm('모든 데이터를 삭제할까요?')) return;
+    localStorage.removeItem(LS_CONFIG);
+    localStorage.removeItem(LS_TXNS);
+    setCfg(null); setTxnsRaw([]); setScreen('main');
+  };
+
+  const doImport = ({ config, transactions }) => {
+    saveConfig(config);
+    localStorage.setItem(LS_TXNS, JSON.stringify(transactions));
+    setTxnsRaw(transactions);
+    setScreen('main');
+    alert('가져오기 완료');
+  };
+
+  if (!cfg) return html`<${SetupScreen} onSave=${saveConfig} />`;
+
+  if (screen === 'settings') return html`
+    <${SettingsScreen}
+      cfg=${cfg} txns=${txns}
+      onBack=${()=>setScreen('main')}
+      onReset=${reset}
+      onImport=${doImport}
+    />`;
+
+  return html`
+    <${MainScreen}
+      cfg=${cfg} txns=${txns} setTxns=${setTxns}
+      onSettings=${()=>setScreen('settings')}
+    />`;
+}
+
+render(html`<${App} />`, document.getElementById('app'));
+
+// ── Service Worker ────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
