@@ -18,8 +18,8 @@
     input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
     ::-webkit-scrollbar{display:none}
 
-    .screen{height:100%;overflow-y:auto;overflow-x:hidden;padding-bottom:100px}
-    .px{padding-left:22px;padding-right:22px}
+    .screen{height:100%;overflow-y:auto;overflow-x:hidden;padding-bottom:100px}.screen-inner{max-width:480px;margin:0 auto}
+    .px{padding-left:24px;padding-right:24px}
 
     /* Tab bar */
     .tab-bar{position:fixed;bottom:0;left:0;right:0;height:82px;background:rgba(13,13,20,.97);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,.05);display:flex;align-items:center;justify-content:space-around;padding-bottom:env(safe-area-inset-bottom,14px);z-index:100}
@@ -29,16 +29,16 @@
     .add-btn{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8B6FFF,#6040DF);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 24px rgba(139,111,255,.5);margin-top:-12px;flex-shrink:0}
 
     /* Cards */
-    .card{background:#161622;border-radius:20px;padding:20px}
-    .card-row{display:flex;align-items:center;padding:17px 20px;border-bottom:1px solid rgba(255,255,255,.04)}
+    .card{background:#161622;border-radius:20px;padding:22px}
+    .card-row{display:flex;align-items:center;padding:22px 22px;border-bottom:1px solid rgba(255,255,255,.04)}
     .card-row:last-child{border-bottom:none}
 
     /* Section */
-    .section{margin-bottom:32px}
-    .section-label{font-size:11px;color:#555;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+    .section{margin-bottom:52px}
+    .section-label{font-size:11px;color:#555;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px}
 
     /* Inputs */
-    .inp{width:100%;background:#0D0D14;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:15px 18px;color:#fff;font-size:15px;outline:none;transition:border-color .2s}
+    .inp{width:100%;background:#0D0D14;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:16px 18px;color:#fff;font-size:15px;outline:none;transition:border-color .2s}
     .inp:focus{border-color:rgba(139,111,255,.5)}
     .inp::placeholder{color:#3A3A4A}
 
@@ -170,11 +170,11 @@ function HomeScreen({cfg,txns}){
 
   return html`
     <div class="screen">
-      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 0">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+      <div class="px" style="padding-top:calc(env(safe-area-inset-top,44px)+32px); margin-bottom:28px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
-            <div style="font-size:12px;color:#555;margin-bottom:3px">${cfg.startDate} – ${cfg.endDate}</div>
-            <div style="font-size:20px;font-weight:800;letter-spacing:-.02em">Overview</div>
+            <div style="font-size:12px;color:#555;margin-bottom:6px;letter-spacing:.02em">${cfg.startDate} – ${cfg.endDate}</div>
+            <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Overview</div>
           </div>
           <div style="display:flex;align-items:center;gap:5px;background:rgba(139,111,255,.14);padding:6px 13px;border-radius:20px">
             <${Calendar} size=${12} color="#8B6FFF" />
@@ -183,8 +183,7 @@ function HomeScreen({cfg,txns}){
         </div>
       </div>
 
-      <!-- Hero card -->
-      <div class="px" style="margin-bottom:14px">
+      <div class="px" style="margin-bottom:16px">
         <div class="card" style="background:linear-gradient(145deg,#1C1430,#161228);border:1px solid rgba(139,111,255,.16)">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
             <${Wallet} size=${12} color="#8B6FFF" />
@@ -206,16 +205,14 @@ function HomeScreen({cfg,txns}){
         </div>
       </div>
 
-      <!-- Pool rings -->
-      <div class="px" style="display:flex;gap:12px;margin-bottom:28px">
+      <div class="px" style="display:flex;gap:14px;margin-bottom:32px">
         <${PoolCard} label="Buffer" value=${bufferPool} initial=${cfg.initialBuffer} color="#FF8A3D" Icon=${Gamepad2} />
         <${PoolCard} label="Savings" value=${savingsPool} initial=${Math.max(1,cfg.dailyCap*20)} color="#22D3A5" Icon=${PiggyBank} />
       </div>
 
-      <!-- Today -->
       <div class="px">
         <div class="section-label">Today</div>
-        <div class="card" style="padding:0 20px">
+        <div class="card" style="padding:0 22px">
           ${todayT.length===0?html`
             <div style="padding:28px 0;text-align:center;color:#444;font-size:13px">No expenses today</div>`:
             todayT.map(t=>{
@@ -244,15 +241,15 @@ function RecordsScreen({txns,onDelete}){
   const dates=Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
   return html`
     <div class="screen">
-      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 24px">
+      <div style="padding:calc(env(safe-area-inset-top,44px)+20px) 24px 28px">
         <div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Records</div>
       </div>
       ${txns.length===0?html`
         <div class="px" style="padding-top:60px;text-align:center;color:#444;font-size:14px">No transactions yet</div>`:
         dates.map(date=>html`
-          <div key=${date} class="px" style="margin-bottom:24px">
+          <div key=${date} class="px" style="margin-bottom:28px">
             <div style="font-size:12px;color:#555;font-weight:500;margin-bottom:10px;letter-spacing:.04em">${date===today?'Today':date}</div>
-            <div class="card" style="padding:0 20px">
+            <div class="card" style="padding:0 22px">
               ${grouped[date].map(t=>{
                 const Ic=getTxnIcon(t.label,t.pool);
                 const col=t.pool==='buffer'?'#FF8A3D':'#8B6FFF';
@@ -281,12 +278,12 @@ function RecordsScreen({txns,onDelete}){
 function SettingsScreen({cfg,onReset}){
   return html`
     <div class="screen">
-      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 24px">
+      <div style="padding:calc(env(safe-area-inset-top,44px)+20px) 24px 28px">
         <div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Settings</div>
       </div>
       <div class="px">
         <div class="section-label">Budget</div>
-        <div class="card" style="padding:0;margin-bottom:28px">
+        <div class="card" style="padding:0;margin-bottom:36px">
           ${[['Period',`${cfg.startDate} – ${cfg.endDate}`],['Daily limit',fmt(cfg.dailyCap)],['Spend pool',fmt(cfg.initialSpend)],['Buffer',fmt(cfg.initialBuffer)]].map(([k,v])=>html`
             <div class="card-row">
               <span style="font-size:14px;color:#888">${k}</span>
@@ -295,7 +292,7 @@ function SettingsScreen({cfg,onReset}){
         </div>
 
         <div class="section-label">Sync</div>
-        <div class="card" style="margin-bottom:28px;display:flex;align-items:center;gap:12px">
+        <div class="card" style="margin-bottom:36px;display:flex;align-items:center;gap:12px">
           <div style="width:34px;height:34px;border-radius:10px;background:rgba(34,211,165,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
             <${Check} size=${16} color="#22D3A5" />
           </div>
@@ -398,17 +395,15 @@ function SetupScreen({onSave}){
   };
 
   return html`
-    <div style="height:100vh;overflow-y:auto;padding:calc(env(safe-area-inset-top,44px)+24px) 24px 60px">
+    <div style="height:100vh;overflow-y:auto;padding:calc(env(safe-area-inset-top,44px)+32px) 28px calc(env(safe-area-inset-bottom,40px) + 120px);max-width:480px;margin:0 auto">
 
-      <!-- Title -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <${Wallet} size=${14} color="#8B6FFF" />
         <span style="font-size:11px;color:#8B6FFF;font-weight:600;letter-spacing:.12em;text-transform:uppercase">Monthly Budget</span>
       </div>
       <div style="font-size:32px;font-weight:900;letter-spacing:-.03em;margin-bottom:6px">Budget Setup</div>
-      <div style="font-size:14px;color:#555;margin-bottom:44px">Configure your spending period</div>
+      <div style="font-size:14px;color:#555;margin-bottom:60px">Configure your spending period</div>
 
-      <!-- Period -->
       <div class="section">
         <div class="section-label">Period</div>
         <div class="card" style="padding:0">
@@ -425,7 +420,6 @@ function SetupScreen({onSave}){
         </div>
       </div>
 
-      <!-- Amounts -->
       <div class="section">
         <div class="section-label">Amounts</div>
         <div class="card" style="padding:0">
@@ -441,12 +435,11 @@ function SetupScreen({onSave}){
         </div>
       </div>
 
-      <!-- Shortcuts -->
       <div class="section">
         <div class="section-label">Quick Shortcuts</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;flex-direction:column;gap:12px">
           ${form.shortcuts.map((s,i)=>html`
-            <div key=${i} class="card" style="padding:14px 16px;display:flex;gap:8px;align-items:center">
+            <div key=${i} class="card" style="padding:18px 18px;display:flex;gap:8px;align-items:center">
               <input placeholder="Name" value=${s.label} onInput=${e=>setS(i,'label',e.target.value)}
                 style="flex:2;background:none;border:none;color:#fff;font-size:14px;outline:none;min-width:0" />
               <div style="width:1px;height:20px;background:rgba(255,255,255,.07);flex-shrink:0"></div>
@@ -472,7 +465,7 @@ function SetupScreen({onSave}){
         </div>
       </div>
 
-      <button class="btn-primary" onClick=${save}>Get Started</button>
+      <button class="btn-primary" onClick=${save} style="margin-bottom: 24px;">Get Started</button>
     </div>`;
 }
 
