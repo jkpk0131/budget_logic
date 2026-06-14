@@ -1,11 +1,8 @@
-const CACHE = "budget-v1";
+const CACHE = "budget-v3";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "https://esm.sh/preact@10.19.6",
-  "https://esm.sh/preact@10.19.6/hooks",
-  "https://esm.sh/htm@3.1.1",
 ];
 
 self.addEventListener("install", e => {
@@ -21,13 +18,24 @@ self.addEventListener("activate", e => {
 });
 
 self.addEventListener("fetch", e => {
+  // index.html은 항상 네트워크 우선 (항상 최신 버전)
+  if (e.request.url.endsWith('index.html') || e.request.url.endsWith('/')) {
+    e.respondWith(
+      fetch(e.request).then(res => {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  // 나머지는 캐시 우선
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
       if (res.ok) {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
+        caches.open(CACHE).then(c => c.put(e.request, res.clone()));
       }
       return res;
-    })).catch(() => caches.match("./index.html"))
+    }))
   );
 });
