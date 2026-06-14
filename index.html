@@ -1,372 +1,560 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Budget">
-  <meta name="theme-color" content="#0C0E14">
+  <meta name="theme-color" content="#0D0D14">
   <link rel="manifest" href="manifest.json">
   <title>Monthly Budget</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; background: #0C0E14; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; color: #E0E0E8; overscroll-behavior: none; }
-    #app { min-height: 100%; }
-    input, select, button { font-family: inherit; }
-    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
-    ::-webkit-scrollbar { display: none; }
-    .sync { position: fixed; top: 14px; right: 16px; font-size: 11px; padding: 4px 8px; border-radius: 20px; z-index: 999; }
-    .sync-ok  { background: #0E2A18; color: #3A9A5A; }
-    .sync-err { background: #2A0E0E; color: #FF5A5A; }
-    .sync-ing { background: #1A1A26; color: #888; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#0D0D14;overflow:hidden}
+    body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',sans-serif;color:#fff;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
+    #app{height:100%}
+    input,select,button,textarea{font-family:inherit}
+    input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
+    ::-webkit-scrollbar{display:none}
+
+    .screen{height:100%;overflow-y:auto;overflow-x:hidden;padding-bottom:100px}
+    .px{padding-left:22px;padding-right:22px}
+
+    /* Tab bar */
+    .tab-bar{position:fixed;bottom:0;left:0;right:0;height:82px;background:rgba(13,13,20,.97);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,.05);display:flex;align-items:center;justify-content:space-around;padding-bottom:env(safe-area-inset-bottom,14px);z-index:100}
+    .tab-item{display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;opacity:.3;transition:opacity .2s;padding:6px 18px;background:none;border:none;color:#fff}
+    .tab-item.active{opacity:1}
+    .tab-label{font-size:10px;font-weight:500;letter-spacing:.03em}
+    .add-btn{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8B6FFF,#6040DF);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 24px rgba(139,111,255,.5);margin-top:-12px;flex-shrink:0}
+
+    /* Cards */
+    .card{background:#161622;border-radius:20px;padding:20px}
+    .card-row{display:flex;align-items:center;padding:17px 20px;border-bottom:1px solid rgba(255,255,255,.04)}
+    .card-row:last-child{border-bottom:none}
+
+    /* Section */
+    .section{margin-bottom:32px}
+    .section-label{font-size:11px;color:#555;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+
+    /* Inputs */
+    .inp{width:100%;background:#0D0D14;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:15px 18px;color:#fff;font-size:15px;outline:none;transition:border-color .2s}
+    .inp:focus{border-color:rgba(139,111,255,.5)}
+    .inp::placeholder{color:#3A3A4A}
+
+    /* Modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end}
+    .modal-sheet{background:#161622;border-radius:28px 28px 0 0;width:100%;padding:20px 22px calc(env(safe-area-inset-bottom,0px) + 28px);max-height:90vh;overflow-y:auto}
+    .drag-handle{width:36px;height:4px;background:rgba(255,255,255,.12);border-radius:2px;margin:0 auto 24px}
+
+    /* Pill */
+    .pill{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:30px;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#fff}
+
+    /* Transaction row */
+    .txn-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+    .txn-row:last-child{border-bottom:none}
+    .txn-icon{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+    /* Buttons */
+    .btn-primary{width:100%;background:linear-gradient(135deg,#8B6FFF,#6040DF);border:none;border-radius:16px;padding:16px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:-.01em}
   </style>
 </head>
 <body>
 <div id="app"></div>
-<div id="sync-badge" class="sync sync-ing">⏳</div>
-
 <script type="module">
 import { h, render } from 'https://esm.sh/preact@10.19.6';
 import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.19.6/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, doc, onSnapshot, setDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import {
+  LayoutDashboard, ClipboardList, Settings, Plus,
+  Wallet, PiggyBank, Gamepad2, CreditCard,
+  Coffee, UtensilsCrossed, Bus, ShoppingBag, Store,
+  Trash2, Check, X, Calendar
+} from 'https://esm.sh/lucide-preact@0.383.0';
 
 const html = htm.bind(h);
 
 // ── Firebase ──────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyCnGFsmqxSTy9xr_VkN6GP_vLz4rSli9wI",
-  authDomain: "budget-logic.firebaseapp.com",
-  projectId: "budget-logic",
-  storageBucket: "budget-logic.firebasestorage.app",
-  messagingSenderId: "119487307408",
-  appId: "1:119487307408:web:ba4492fb4409a468490215"
-};
-const fbApp = initializeApp(firebaseConfig);
-const db    = getFirestore(fbApp);
-const DOC   = doc(db, 'budget', 'main');
-
-const badge = document.getElementById('sync-badge');
-const syncOK  = () => { badge.className='sync sync-ok';  badge.textContent='✅ 동기화됨'; };
-const syncErr = () => { badge.className='sync sync-err'; badge.textContent='❌ 오프라인'; };
-const syncing = () => { badge.className='sync sync-ing'; badge.textContent='⏳ 저장 중'; };
+const fbApp = initializeApp({
+  apiKey:"AIzaSyCnGFsmqxSTy9xr_VkN6GP_vLz4rSli9wI",
+  authDomain:"budget-logic.firebaseapp.com",
+  projectId:"budget-logic",
+  storageBucket:"budget-logic.firebasestorage.app",
+  messagingSenderId:"119487307408",
+  appId:"1:119487307408:web:ba4492fb4409a468490215"
+});
+const db  = getFirestore(fbApp);
+const DOC = doc(db,'budget','main');
 
 // ── Helpers ───────────────────────────────────────────────
-const fmt = n => `$${Math.abs(n).toFixed(2)}`;
-function localDateKey(d = new Date()) {
+const fmt   = n => `$${Math.abs(n).toFixed(2)}`;
+const fmtSm = n => n>=1000?`$${(n/1000).toFixed(1)}k`:fmt(n);
+
+function localDateKey(d=new Date()){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-function getTime() { return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
-function getDaysLeft(endDate) {
-  const end   = new Date(endDate+'T00:00:00');
-  const today = new Date(localDateKey()+'T00:00:00');
-  return Math.max(0, Math.ceil((end-today)/86400000)+1);
+function getTime(){return new Date().toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'});}
+function getDaysLeft(end){
+  return Math.max(0,Math.ceil((new Date(end+'T00:00:00')-new Date(localDateKey()+'T00:00:00'))/86400000)+1);
 }
-
-function derivePools(txns, cfg) {
-  if (!cfg) return { spendPool:0, bufferPool:0, savingsPool:0 };
-  const todayKey = localDateKey();
-  const spendByDate = {};
-  txns.forEach(t => {
-    if (t.pool==='spend')
-      spendByDate[t.date] = parseFloat(((spendByDate[t.date]||0)+t.amount).toFixed(2));
-  });
-  let spendPool=cfg.initialSpend, savingsPool=0;
-  let cursor=new Date(cfg.startDate+'T00:00:00');
-  const today=new Date(todayKey+'T00:00:00');
-  while (cursor<=today) {
-    const dk=localDateKey(cursor), isToday=dk===todayKey, daySpend=spendByDate[dk]||0;
-    spendPool=parseFloat((spendPool-daySpend).toFixed(2));
-    if (!isToday) {
-      const saved=parseFloat(Math.max(0,cfg.dailyCap-daySpend).toFixed(2));
-      spendPool=parseFloat((spendPool-saved).toFixed(2));
-      savingsPool=parseFloat((savingsPool+saved).toFixed(2));
-    }
-    cursor.setDate(cursor.getDate()+1);
+function derivePools(txns,cfg){
+  if(!cfg)return{spendPool:0,bufferPool:0,savingsPool:0};
+  const today=localDateKey(),spd={};
+  txns.forEach(t=>{if(t.pool==='spend')spd[t.date]=parseFloat(((spd[t.date]||0)+t.amount).toFixed(2));});
+  let sp=cfg.initialSpend,sav=0;
+  let cur=new Date(cfg.startDate+'T00:00:00'),tod=new Date(today+'T00:00:00');
+  while(cur<=tod){
+    const dk=localDateKey(cur),isT=dk===today,ds=spd[dk]||0;
+    sp=parseFloat((sp-ds).toFixed(2));
+    if(!isT){const s=parseFloat(Math.max(0,cfg.dailyCap-ds).toFixed(2));sp=parseFloat((sp-s).toFixed(2));sav=parseFloat((sav+s).toFixed(2));}
+    cur.setDate(cur.getDate()+1);
   }
-  let bufferPool=cfg.initialBuffer, overflow=0;
+  let bp=cfg.initialBuffer,ov=0;
   [...txns].filter(t=>t.pool==='buffer').sort((a,b)=>a.id-b.id).forEach(t=>{
-    if (bufferPool>=t.amount) bufferPool=parseFloat((bufferPool-t.amount).toFixed(2));
-    else { overflow=parseFloat((overflow+t.amount-bufferPool).toFixed(2)); bufferPool=0; }
+    if(bp>=t.amount)bp=parseFloat((bp-t.amount).toFixed(2));
+    else{ov=parseFloat((ov+t.amount-bp).toFixed(2));bp=0;}
   });
-  spendPool=parseFloat((spendPool-overflow).toFixed(2));
-  return { spendPool, bufferPool, savingsPool };
+  return{spendPool:parseFloat((sp-ov).toFixed(2)),bufferPool:bp,savingsPool:sav};
+}
+function getTxnIcon(label='',pool){
+  const l=label.toLowerCase();
+  if(l.includes('coffee')||l.includes('커피')||l.includes('latte'))return Coffee;
+  if(l.includes('food')||l.includes('meal')||l.includes('lunch')||l.includes('dinner')||l.includes('chicken')||l.includes('치킨')||l.includes('맥날')||l.includes('pizza')||l.includes('밥'))return UtensilsCrossed;
+  if(l.includes('store')||l.includes('편의점')||l.includes('mart')||l.includes('gs')||l.includes('7-'))return Store;
+  if(l.includes('shop')||l.includes('쇼핑')||l.includes('cloth'))return ShoppingBag;
+  if(l.includes('transit')||l.includes('bus')||l.includes('subway')||l.includes('교통')||l.includes('uber')||l.includes('taxi'))return Bus;
+  return pool==='buffer'?Gamepad2:CreditCard;
 }
 
-// ── Setup Screen ──────────────────────────────────────────
-function SetupScreen({ onSave }) {
-  const today=localDateKey();
-  const [form,setForm]=useState({
-    startDate:today, endDate:'', dailyCap:'15',
-    initialSpend:'', initialBuffer:'',
-    shortcuts:[
-      {label:'☕ 커피',amount:'2.81',pool:'spend'},
-      {label:'🍗 치킨',amount:'27',pool:'buffer'},
-    ]
-  });
-  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const setS=(i,k,v)=>{const s=[...form.shortcuts];s[i]={...s[i],[k]:v};setForm(p=>({...p,shortcuts:s}));};
-  const save=()=>{
-    if(!form.startDate||!form.endDate||!form.dailyCap||!form.initialSpend||!form.initialBuffer) return alert('모든 항목을 입력해주세요.');
-    onSave({ startDate:form.startDate, endDate:form.endDate, dailyCap:parseFloat(form.dailyCap),
-      initialSpend:parseFloat(form.initialSpend), initialBuffer:parseFloat(form.initialBuffer),
-      shortcuts:form.shortcuts.filter(s=>s.label&&s.amount).map(s=>({...s,amount:parseFloat(s.amount)})) });
-  };
-  const inp=extra=>({background:'#0C0E14',border:'1px solid #2A2A38',borderRadius:8,padding:'11px 12px',color:'#E0E0E8',fontSize:14,outline:'none',...extra});
+// ── Ring SVG ──────────────────────────────────────────────
+function Ring({pct,color,size=72,stroke=4.5,Icon}){
+  const r=size/2-stroke-2,circ=2*Math.PI*r,dash=Math.max(0,Math.min(1,pct))*circ;
   return html`
-    <div style=${{padding:'36px 18px 48px',maxWidth:420,margin:'0 auto'}}>
-      <div style=${{fontSize:11,color:'#444',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:6}}>Monthly Budget</div>
-      <div style=${{fontSize:22,fontWeight:800,marginBottom:24}}>예산 설정</div>
-      ${[['기간 시작일',html`<input type="date" value=${form.startDate} onInput=${e=>set('startDate',e.target.value)} style=${inp({width:'100%'})} />`],
-         ['기간 종료일',html`<input type="date" value=${form.endDate} min=${form.startDate} onInput=${e=>set('endDate',e.target.value)} style=${inp({width:'100%'})} />`],
-         ['일일 한도 ($)',html`<input type="number" placeholder="예: 15" value=${form.dailyCap} onInput=${e=>set('dailyCap',e.target.value)} style=${inp({width:'100%'})} />`],
-         ['소비 풀 초기값 ($)',html`<input type="number" placeholder="예: 420" value=${form.initialSpend} onInput=${e=>set('initialSpend',e.target.value)} style=${inp({width:'100%'})} />`],
-         ['버퍼 초기값 ($)',html`<input type="number" placeholder="예: 210" value=${form.initialBuffer} onInput=${e=>set('initialBuffer',e.target.value)} style=${inp({width:'100%'})} />`],
-        ].map(([label,field])=>html`<div style=${{marginBottom:14}}><div style=${{fontSize:11,color:'#555',marginBottom:6}}>${label}</div>${field}</div>`)}
-      <div style=${{marginBottom:8}}>
-        <div style=${{fontSize:11,color:'#555',marginBottom:10}}>빠른 입력 단축키</div>
-        ${form.shortcuts.map((s,i)=>html`
-          <div key=${i} style=${{display:'flex',gap:6,marginBottom:8,alignItems:'center'}}>
-            <input placeholder="이름" value=${s.label} onInput=${e=>setS(i,'label',e.target.value)}
-              style=${{flex:2,background:'#0C0E14',border:'1px solid #2A2A38',borderRadius:8,padding:'9px 10px',color:'#E0E0E8',fontSize:13,outline:'none'}} />
-            <input type="number" placeholder="금액" value=${s.amount} onInput=${e=>setS(i,'amount',e.target.value)}
-              style=${{flex:1.2,background:'#0C0E14',border:'1px solid #2A2A38',borderRadius:8,padding:'9px 10px',color:'#E0E0E8',fontSize:13,outline:'none'}} />
-            <select value=${s.pool} onChange=${e=>setS(i,'pool',e.target.value)}
-              style=${{flex:1.2,background:'#0C0E14',border:'1px solid #2A2A38',borderRadius:8,padding:'9px 8px',color:'#E0E0E8',fontSize:12,outline:'none'}}>
-              <option value="spend">소비</option><option value="buffer">버퍼</option>
-            </select>
-            <button onClick=${()=>setForm(p=>({...p,shortcuts:p.shortcuts.filter((_,j)=>j!==i)}))}
-              style=${{background:'none',border:'1px solid #2A2A38',borderRadius:6,padding:'8px 10px',color:'#555',cursor:'pointer',fontSize:13}}>✕</button>
-          </div>
-        `)}
-        <button onClick=${()=>setForm(p=>({...p,shortcuts:[...p.shortcuts,{label:'',amount:'',pool:'spend'}]}))}
-          style=${{background:'none',border:'1px dashed #2A2A38',borderRadius:8,padding:'9px',color:'#555',cursor:'pointer',fontSize:13,width:'100%',marginTop:4}}>+ 단축키 추가</button>
+    <svg width=${size} height=${size} viewBox="0 0 ${size} ${size}">
+      <circle cx=${size/2} cy=${size/2} r=${r} fill="none" stroke="rgba(255,255,255,.06)" stroke-width=${stroke} />
+      <circle cx=${size/2} cy=${size/2} r=${r} fill="none" stroke=${color} stroke-width=${stroke}
+        stroke-dasharray="${dash} ${circ}" stroke-linecap="round"
+        transform="rotate(-90 ${size/2} ${size/2})" style="transition:stroke-dasharray .6s" />
+      ${Icon&&html`<foreignObject x=${size/2-9} y=${size/2-9} width="18" height="18">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:18px;height:18px">
+          <${Icon} size=${13} color=${color} />
+        </div>
+      </foreignObject>`}
+    </svg>`;
+}
+
+function PoolCard({label,value,initial,color,Icon}){
+  const pct=initial>0?Math.max(0,value/initial):0;
+  return html`
+    <div class="card" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:12px;padding:22px 12px">
+      <${Ring} pct=${pct} color=${color} size=${76} stroke=${4.5} Icon=${Icon} />
+      <div style="text-align:center">
+        <div style="font-size:17px;font-weight:800;letter-spacing:-.02em">${fmtSm(value)}</div>
+        <div style="font-size:10px;color:#555;font-weight:500;text-transform:uppercase;letter-spacing:.08em;margin-top:3px">${label}</div>
       </div>
-      <button onClick=${save}
-        style=${{width:'100%',background:'linear-gradient(135deg,#1A3A6A,#0E2E54)',border:'1px solid #2A5080',borderRadius:12,padding:14,color:'#5AB0FF',fontSize:16,fontWeight:700,cursor:'pointer',marginTop:20}}>
-        시작하기
-      </button>
     </div>`;
 }
 
-// ── Main Screen ───────────────────────────────────────────
-function MainScreen({ cfg, txns, setTxns, onSettings }) {
-  const todayKey=localDateKey();
-  const [label,setLabel]=useState('');
-  const [amount,setAmount]=useState('');
-  const [pool,setPool]=useState('spend');
-  const [date,setDate]=useState(todayKey);
-  const [toast,setToast]=useState(null);
-  const [showAll,setShowAll]=useState(false);
-  const flash=msg=>{setToast(msg);setTimeout(()=>setToast(null),2800);};
-  const { spendPool, bufferPool, savingsPool }=derivePools(txns,cfg);
+// ── Home Screen ───────────────────────────────────────────
+function HomeScreen({cfg,txns}){
+  const today=localDateKey();
+  const {spendPool,bufferPool,savingsPool}=derivePools(txns,cfg);
   const daysLeft=getDaysLeft(cfg.endDate);
-  const todayTxns=txns.filter(t=>t.date===todayKey);
-  const todaySpend=todayTxns.filter(t=>t.pool==='spend').reduce((s,t)=>s+t.amount,0);
-  const todayBuf=todayTxns.filter(t=>t.pool==='buffer').reduce((s,t)=>s+t.amount,0);
+  const todayT=txns.filter(t=>t.date===today);
+  const todaySpend=todayT.filter(t=>t.pool==='spend').reduce((s,t)=>s+t.amount,0);
   const capLeft=parseFloat((cfg.dailyCap-todaySpend).toFixed(2));
-  const spendPct=Math.min(100,(spendPool/cfg.initialSpend)*100);
-  const bufPct=Math.min(100,(bufferPool/cfg.initialBuffer)*100);
-  const addTxn=(lbl,amt,poolType,dateStr)=>{
-    const txn={id:Date.now(),date:dateStr,time:dateStr===todayKey?getTime():'',label:lbl,amount:parseFloat(parseFloat(amt).toFixed(2)),pool:poolType};
-    setTxns(prev=>[...prev,txn].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id));
-    flash(`✅ ${lbl} ${fmt(txn.amount)}${dateStr!==todayKey?` (${dateStr})`:''}`)
-  };
-  const delTxn=txn=>{setTxns(prev=>prev.filter(t=>t.id!==txn.id));flash(`🗑 ${txn.label} 취소`);};
-  const handleManual=()=>{
-    if(!label.trim()||!amount||isNaN(parseFloat(amount)))return;
-    addTxn(label.trim(),parseFloat(amount),pool,date);
-    setLabel('');setAmount('');setPool('spend');setDate(todayKey);
-  };
-  const displayTxns=showAll?txns:txns.slice(0,12);
-  const card=(bg,border)=>({background:bg,borderRadius:18,padding:'18px 14px',border:`1px solid ${border}`});
-  const lbl=color=>({fontSize:10,color,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:10});
-  const big=color=>({fontSize:28,fontWeight:900,color,lineHeight:1,letterSpacing:'-0.03em'});
-  const inp=extra=>({background:'#0C0E14',border:'1px solid #1E1E28',borderRadius:8,padding:'11px 12px',color:'#E0E0E8',fontSize:14,outline:'none',...extra});
+  const spentFrac=Math.min(1,todaySpend/cfg.dailyCap);
+  const capColor=capLeft<0?'#FF5A5A':capLeft<5?'#F5B800':'#22D3A5';
+
   return html`
-    <div style=${{padding:'env(safe-area-inset-top,24px) 16px 48px',maxWidth:420,margin:'0 auto'}}>
-      <div style=${{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:22}}>
-        <div>
-          <div style=${{fontSize:11,color:'#444',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:4}}>Monthly Budget</div>
-          <div style=${{fontSize:20,fontWeight:800,letterSpacing:'-0.02em'}}>${new Date().toLocaleDateString('ko-KR',{month:'long',day:'numeric'})}</div>
-          <div style=${{fontSize:11,color:'#555',marginTop:3}}>D‑${daysLeft} · ${cfg.endDate}까지</div>
-        </div>
-        <button onClick=${onSettings} style=${{background:'none',border:'1px solid #222',borderRadius:8,padding:'7px 11px',color:'#555',fontSize:18,cursor:'pointer'}}>⚙️</button>
-      </div>
-      <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
-        <div style=${card('linear-gradient(160deg,#0B2444,#0E2E54)','#163658')}>
-          <div style=${lbl('#3A7AC0')}>소비 풀</div>
-          <div style=${big('#D6EEFF')}>${fmt(spendPool)}</div>
-          <div style=${{marginTop:12,height:3,background:'#0A1C33',borderRadius:2,overflow:'hidden'}}>
-            <div style=${{height:'100%',width:`${spendPct}%`,background:'linear-gradient(90deg,#2A6FBF,#5AB0FF)',borderRadius:2,transition:'width 0.4s'}} />
+    <div class="screen">
+      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+          <div>
+            <div style="font-size:12px;color:#555;margin-bottom:3px">${cfg.startDate} – ${cfg.endDate}</div>
+            <div style="font-size:20px;font-weight:800;letter-spacing:-.02em">Overview</div>
           </div>
-          <div style=${{marginTop:7,fontSize:11,color:'#3A7AC0'}}>한도 <span style=${{fontWeight:700,color:'#5AB0FF'}}>${fmt(cfg.dailyCap)}/일</span></div>
-        </div>
-        <div style=${card('linear-gradient(160deg,#2C1900,#3A2100)','#5A3A00')}>
-          <div style=${lbl('#C08000')}>버퍼</div>
-          <div style=${big('#FFEDAA')}>${fmt(bufferPool)}</div>
-          <div style=${{marginTop:12,height:3,background:'#1E1000',borderRadius:2,overflow:'hidden'}}>
-            <div style=${{height:'100%',width:`${bufPct}%`,background:'linear-gradient(90deg,#B07000,#F5B800)',borderRadius:2,transition:'width 0.4s'}} />
+          <div style="display:flex;align-items:center;gap:5px;background:rgba(139,111,255,.14);padding:6px 13px;border-radius:20px">
+            <${Calendar} size=${12} color="#8B6FFF" />
+            <span style="font-size:12px;color:#8B6FFF;font-weight:600">D-${daysLeft}</span>
           </div>
-          <div style=${{marginTop:7,fontSize:11,color:'#C08000'}}>유희 · 외식</div>
         </div>
       </div>
-      <div style=${{...card('linear-gradient(160deg,#0A2010,#0E2A18)','#1A4A28'),marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-        <div>
-          <div style=${lbl('#3A9A5A')}>저축 풀</div>
-          <div style=${{fontSize:32,fontWeight:900,color:'#AAFFC4',lineHeight:1,letterSpacing:'-0.03em'}}>${fmt(savingsPool)}</div>
-          <div style=${{fontSize:11,color:'#3A7A4A',marginTop:6}}>$${cfg.dailyCap} 미만 지출일 자동 적립</div>
-        </div>
-        <div style=${{fontSize:28}}>💰</div>
-      </div>
-      <div style=${{background:'#10121A',borderRadius:12,padding:'12px 14px',marginBottom:14,display:'flex'}}>
-        ${[['오늘 소비',fmt(todaySpend),'#4A9EF5'],['오늘 버퍼',fmt(todayBuf),'#F5B800'],
-           ['한도 잔여',capLeft<0?`-${fmt(Math.abs(capLeft))}`:fmt(capLeft),capLeft<0?'#FF5A5A':capLeft<5?'#F5B800':'#5AFF8A']
-          ].map(([t,v,c],i)=>html`<div key=${i} style=${{flex:1,textAlign:'center'}}><div style=${{fontSize:10,color:'#444',marginBottom:4}}>${t}</div><div style=${{fontSize:17,fontWeight:800,color:c}}>${v}</div></div>`)}
-      </div>
-      ${cfg.shortcuts?.length?html`
-        <div style=${{marginBottom:14}}>
-          <div style=${{fontSize:10,color:'#444',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.08em'}}>빠른 입력</div>
-          <div style=${{display:'flex',gap:8}}>
-            ${cfg.shortcuts.map((q,i)=>html`
-              <button key=${i} onClick=${()=>addTxn(q.label,q.amount,q.pool,todayKey)}
-                style=${{flex:1,background:'#16161E',border:'1px solid #252530',borderRadius:12,padding:'12px 8px',color:'#E0E0E8',fontSize:13,cursor:'pointer',fontWeight:700,lineHeight:1.4}}>
-                ${q.label}<div style=${{fontSize:11,color:'#555',fontWeight:400,marginTop:2}}>${fmt(q.amount)}</div>
-              </button>`)}
+
+      <!-- Hero card -->
+      <div class="px" style="margin-bottom:14px">
+        <div class="card" style="background:linear-gradient(145deg,#1C1430,#161228);border:1px solid rgba(139,111,255,.16)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+            <${Wallet} size=${12} color="#8B6FFF" />
+            <span style="font-size:11px;color:#8B6FFF;font-weight:600;letter-spacing:.1em;text-transform:uppercase">Spend Pool</span>
           </div>
-        </div>` : null}
-      <div style=${{background:'#10121A',borderRadius:14,padding:14,marginBottom:20}}>
-        <div style=${{fontSize:10,color:'#444',marginBottom:10,textTransform:'uppercase',letterSpacing:'0.08em'}}>직접 입력</div>
-        <input placeholder="항목" value=${label} onInput=${e=>setLabel(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleManual()}
-          style=${inp({width:'100%',marginBottom:8})} />
-        <div style=${{display:'flex',gap:8,marginBottom:8}}>
-          <input type="number" placeholder="금액" value=${amount} onInput=${e=>setAmount(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleManual()} style=${inp({flex:1})} />
-          <select value=${pool} onChange=${e=>setPool(e.target.value)} style=${inp({flex:1})}>
-            <option value="spend">소비 풀</option><option value="buffer">버퍼</option>
-          </select>
+          <div style="font-size:46px;font-weight:900;letter-spacing:-.04em;line-height:1;margin-bottom:10px">${fmt(spendPool)}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+            <span style="font-size:13px;color:#666">${fmt(todaySpend)} today</span>
+            <span style="width:3px;height:3px;border-radius:50%;background:#333;flex-shrink:0"></span>
+            <span style="font-size:13px;font-weight:600;color:${capColor}">${fmt(Math.abs(capLeft))} ${capLeft<0?'over':'left today'}</span>
+          </div>
+          <div style="height:4px;background:rgba(255,255,255,.07);border-radius:10px;overflow:hidden">
+            <div style="height:100%;width:${spentFrac*100}%;background:linear-gradient(90deg,#8B6FFF,#6040DF);border-radius:10px;transition:width .5s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px">
+            <span style="font-size:11px;color:#444">$0</span>
+            <span style="font-size:11px;color:#444">${fmt(cfg.dailyCap)}/day</span>
+          </div>
         </div>
-        <div style=${{marginBottom:8}}>
-          <input type="date" value=${date} onInput=${e=>setDate(e.target.value)} min=${cfg.startDate} max=${todayKey}
-            style=${inp({width:'100%',border:date!==todayKey?'1px solid #5A3A00':'1px solid #1E1E28',color:date!==todayKey?'#F5B800':'#E0E0E8'})} />
-          ${date!==todayKey?html`<div style=${{fontSize:11,color:'#F5B800',marginTop:4}}>⏮ 과거 날짜 입력 중</div>`:null}
-        </div>
-        <button onClick=${handleManual} style=${{width:'100%',background:'#0E2E54',border:'1px solid #163658',borderRadius:8,padding:11,color:'#5AB0FF',fontSize:14,fontWeight:700,cursor:'pointer'}}>기록</button>
       </div>
-      ${txns.length?html`
-        <div>
-          <div style=${{fontSize:10,color:'#444',marginBottom:10,textTransform:'uppercase',letterSpacing:'0.08em'}}>내역</div>
-          ${displayTxns.map(t=>html`
-            <div key=${t.id} style=${{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #14141C'}}>
-              <div style=${{flex:1}}>
-                <div style=${{fontSize:14,fontWeight:600}}>${t.label}</div>
-                <div style=${{fontSize:11,color:'#444',marginTop:2}}>${t.date===todayKey?(t.time||'오늘'):t.date} · ${t.pool==='buffer'?'버퍼':'소비 풀'}</div>
-              </div>
-              <div style=${{display:'flex',alignItems:'center',gap:10}}>
-                <div style=${{fontSize:15,fontWeight:800,color:t.pool==='buffer'?'#F5B800':'#4A9EF5'}}>−${fmt(t.amount)}</div>
-                <button onClick=${()=>delTxn(t)} style=${{background:'none',border:'1px solid #2A2A38',borderRadius:6,padding:'4px 8px',color:'#555',fontSize:11,cursor:'pointer'}}>취소</button>
-              </div>
-            </div>`)}
-          ${txns.length>12?html`<button onClick=${()=>setShowAll(!showAll)} style=${{width:'100%',background:'none',border:'none',color:'#444',fontSize:12,cursor:'pointer',padding:'12px 0'}}>${showAll?'접기':`+${txns.length-12}개 더 보기`}</button>`:null}
-        </div>`:null}
-      ${toast?html`<div style=${{position:'fixed',bottom:32,left:'50%',transform:'translateX(-50%)',background:'#1A1A26',border:'1px solid #2A2A38',borderRadius:12,padding:'11px 18px',fontSize:13,color:'#E0E0E8',whiteSpace:'nowrap',boxShadow:'0 4px 24px rgba(0,0,0,0.5)',zIndex:998}}>${toast}</div>`:null}
+
+      <!-- Pool rings -->
+      <div class="px" style="display:flex;gap:12px;margin-bottom:28px">
+        <${PoolCard} label="Buffer" value=${bufferPool} initial=${cfg.initialBuffer} color="#FF8A3D" Icon=${Gamepad2} />
+        <${PoolCard} label="Savings" value=${savingsPool} initial=${Math.max(1,cfg.dailyCap*20)} color="#22D3A5" Icon=${PiggyBank} />
+      </div>
+
+      <!-- Today -->
+      <div class="px">
+        <div class="section-label">Today</div>
+        <div class="card" style="padding:0 20px">
+          ${todayT.length===0?html`
+            <div style="padding:28px 0;text-align:center;color:#444;font-size:13px">No expenses today</div>`:
+            todayT.map(t=>{
+              const Ic=getTxnIcon(t.label,t.pool);
+              const col=t.pool==='buffer'?'#FF8A3D':'#8B6FFF';
+              const bg=t.pool==='buffer'?'rgba(255,138,61,.12)':'rgba(139,111,255,.12)';
+              return html`
+                <div class="txn-row" key=${t.id}>
+                  <div class="txn-icon" style="background:${bg}"><${Ic} size=${18} color=${col} /></div>
+                  <div style="flex:1">
+                    <div style="font-size:14px;font-weight:600">${t.label}</div>
+                    <div style="font-size:11px;color:#555;margin-top:2px">${t.pool==='buffer'?'Buffer':'Spend'} · ${t.time||''}</div>
+                  </div>
+                  <div style="font-size:15px;font-weight:700;color:${col}">−${fmt(t.amount)}</div>
+                </div>`;})}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Records Screen ────────────────────────────────────────
+function RecordsScreen({txns,onDelete}){
+  const today=localDateKey();
+  const grouped={};
+  txns.forEach(t=>{if(!grouped[t.date])grouped[t.date]=[];grouped[t.date].push(t);});
+  const dates=Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
+  return html`
+    <div class="screen">
+      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 24px">
+        <div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Records</div>
+      </div>
+      ${txns.length===0?html`
+        <div class="px" style="padding-top:60px;text-align:center;color:#444;font-size:14px">No transactions yet</div>`:
+        dates.map(date=>html`
+          <div key=${date} class="px" style="margin-bottom:24px">
+            <div style="font-size:12px;color:#555;font-weight:500;margin-bottom:10px;letter-spacing:.04em">${date===today?'Today':date}</div>
+            <div class="card" style="padding:0 20px">
+              ${grouped[date].map(t=>{
+                const Ic=getTxnIcon(t.label,t.pool);
+                const col=t.pool==='buffer'?'#FF8A3D':'#8B6FFF';
+                const bg=t.pool==='buffer'?'rgba(255,138,61,.12)':'rgba(139,111,255,.12)';
+                return html`
+                  <div class="txn-row" key=${t.id}>
+                    <div class="txn-icon" style="background:${bg}"><${Ic} size=${18} color=${col} /></div>
+                    <div style="flex:1">
+                      <div style="font-size:14px;font-weight:600">${t.label}</div>
+                      <div style="font-size:11px;color:#555;margin-top:2px">${t.pool==='buffer'?'Buffer':'Spend'}${t.time?` · ${t.time}`:''}</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:15px;font-weight:700;color:${col}">−${fmt(t.amount)}</div>
+                      <button onClick=${()=>onDelete(t)}
+                        style="background:rgba(255,255,255,.05);border:none;border-radius:8px;padding:7px;cursor:pointer;display:flex;color:#555">
+                        <${X} size=${14} />
+                      </button>
+                    </div>
+                  </div>`;})}
+            </div>
+          </div>`)}
     </div>`;
 }
 
 // ── Settings Screen ───────────────────────────────────────
-function SettingsScreen({ cfg, onBack, onReset }) {
+function SettingsScreen({cfg,onReset}){
   return html`
-    <div style=${{padding:'28px 18px 48px',maxWidth:420,margin:'0 auto'}}>
-      <div style=${{display:'flex',alignItems:'center',gap:12,marginBottom:24}}>
-        <button onClick=${onBack} style=${{background:'none',border:'none',color:'#5AB0FF',fontSize:16,cursor:'pointer'}}>← 뒤로</button>
-        <div style=${{fontSize:18,fontWeight:800}}>설정</div>
+    <div class="screen">
+      <div style="padding:calc(env(safe-area-inset-top,44px)+16px) 22px 24px">
+        <div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Settings</div>
       </div>
-      <div style=${{background:'#10121A',borderRadius:14,padding:16,marginBottom:14}}>
-        <div style=${{fontSize:12,fontWeight:600,color:'#888',marginBottom:12}}>현재 설정</div>
-        ${[['기간',`${cfg.startDate} ~ ${cfg.endDate}`],['일일 한도',fmt(cfg.dailyCap)],['소비 풀',fmt(cfg.initialSpend)],['버퍼',fmt(cfg.initialBuffer)]].map(([k,v])=>html`
-          <div style=${{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #1A1A24'}}>
-            <span style=${{fontSize:13,color:'#888'}}>${k}</span>
-            <span style=${{fontSize:13,fontWeight:600}}>${v}</span>
-          </div>`)}
+      <div class="px">
+        <div class="section-label">Budget</div>
+        <div class="card" style="padding:0;margin-bottom:28px">
+          ${[['Period',`${cfg.startDate} – ${cfg.endDate}`],['Daily limit',fmt(cfg.dailyCap)],['Spend pool',fmt(cfg.initialSpend)],['Buffer',fmt(cfg.initialBuffer)]].map(([k,v])=>html`
+            <div class="card-row">
+              <span style="font-size:14px;color:#888">${k}</span>
+              <span style="font-size:14px;font-weight:600;margin-left:auto">${v}</span>
+            </div>`)}
+        </div>
+
+        <div class="section-label">Sync</div>
+        <div class="card" style="margin-bottom:28px;display:flex;align-items:center;gap:12px">
+          <div style="width:34px;height:34px;border-radius:10px;background:rgba(34,211,165,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <${Check} size=${16} color="#22D3A5" />
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600">Firebase Sync</div>
+            <div style="font-size:12px;color:#555;margin-top:2px">Real-time sync across devices</div>
+          </div>
+        </div>
+
+        <button onClick=${onReset}
+          style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.18);border-radius:16px;padding:16px;color:#FF5A5A;font-size:14px;cursor:pointer;font-weight:600">
+          <${Trash2} size=${15} />Reset All Data
+        </button>
       </div>
-      <div style=${{background:'#10121A',borderRadius:14,padding:14,marginBottom:14}}>
-        <div style=${{fontSize:12,fontWeight:600,color:'#3A9A5A',marginBottom:6}}>☁️ Firebase 실시간 동기화</div>
-        <div style=${{fontSize:12,color:'#555'}}>아이폰 ↔ 맥북 자동 동기화 활성화됨</div>
+    </div>`;
+}
+
+// ── Add Sheet ─────────────────────────────────────────────
+function AddSheet({cfg,onAdd,onClose}){
+  const today=localDateKey();
+  const [label,setLabel]=useState('');
+  const [amount,setAmount]=useState('');
+  const [pool,setPool]=useState('spend');
+  const [date,setDate]=useState(today);
+  const go=()=>{
+    if(!label.trim()||!amount||isNaN(parseFloat(amount)))return;
+    onAdd(label.trim(),parseFloat(amount),pool,date);
+    onClose();
+  };
+  return html`
+    <div class="modal-overlay" onClick=${e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div class="modal-sheet">
+        <div class="drag-handle"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:24px">
+          <${Plus} size=${18} color="#8B6FFF" />
+          <span style="font-size:18px;font-weight:800">Add Expense</span>
+        </div>
+
+        ${cfg?.shortcuts?.length?html`
+          <div style="margin-bottom:24px">
+            <div style="font-size:11px;color:#555;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">Quick Add</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              ${cfg.shortcuts.map((q,i)=>{
+                const Ic=getTxnIcon(q.label,q.pool);
+                const col=q.pool==='buffer'?'#FF8A3D':'#8B6FFF';
+                const bg=q.pool==='buffer'?'rgba(255,138,61,.14)':'rgba(139,111,255,.14)';
+                return html`
+                  <button key=${i} class="pill" onClick=${()=>{onAdd(q.label,q.amount,q.pool,today);onClose();}}
+                    style="background:${bg};color:${col}">
+                    <${Ic} size=${14} color=${col} />${q.label} ${fmt(q.amount)}
+                  </button>`;
+              })}
+            </div>
+          </div>`:null}
+
+        <div style="font-size:11px;color:#555;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">Manual</div>
+        <input class="inp" placeholder="Label" value=${label} onInput=${e=>setLabel(e.target.value)}
+          onKeyDown=${e=>e.key==='Enter'&&go()} style="margin-bottom:10px" />
+        <div style="display:flex;gap:10px;margin-bottom:10px">
+          <input class="inp" type="number" placeholder="Amount" value=${amount}
+            onInput=${e=>setAmount(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&go()} style="flex:1" />
+          <select class="inp" value=${pool} onChange=${e=>setPool(e.target.value)} style="flex:1">
+            <option value="spend">Spend</option>
+            <option value="buffer">Buffer</option>
+          </select>
+        </div>
+        <div style="position:relative;margin-bottom:${date!==today?'8px':'24px'}">
+          <input class="inp" type="date" value=${date} onInput=${e=>setDate(e.target.value)}
+            min=${cfg?.startDate} max=${today}
+            style="padding-left:42px;border-color:${date!==today?'rgba(255,138,61,.4)':'rgba(255,255,255,.07)'}" />
+          <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);pointer-events:none">
+            <${Calendar} size=${15} color="${date!==today?'#FF8A3D':'#555'}" />
+          </div>
+        </div>
+        ${date!==today?html`
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:20px">
+            <${Calendar} size=${11} color="#FF8A3D" />
+            <span style="font-size:11px;color:#FF8A3D">Recording for a past date</span>
+          </div>`:null}
+        <button class="btn-primary" onClick=${go}>Save</button>
       </div>
-      <button onClick=${onReset} style=${{width:'100%',background:'none',border:'1px solid #3A1A1A',borderRadius:10,padding:12,color:'#FF5A5A',fontSize:14,cursor:'pointer'}}>🗑 전체 초기화</button>
+    </div>`;
+}
+
+// ── Setup Screen ──────────────────────────────────────────
+function SetupScreen({onSave}){
+  const today=localDateKey();
+  const [form,setForm]=useState({
+    startDate:today,endDate:'',dailyCap:'15',initialSpend:'',initialBuffer:'',
+    shortcuts:[{label:'Coffee',amount:'2.81',pool:'spend'},{label:'Chicken',amount:'27',pool:'buffer'}]
+  });
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const setS=(i,k,v)=>{const s=[...form.shortcuts];s[i]={...s[i],[k]:v};setForm(p=>({...p,shortcuts:s}));};
+  const save=()=>{
+    if(!form.startDate||!form.endDate||!form.dailyCap||!form.initialSpend||!form.initialBuffer)
+      return alert('Please fill in all fields.');
+    onSave({startDate:form.startDate,endDate:form.endDate,dailyCap:parseFloat(form.dailyCap),
+      initialSpend:parseFloat(form.initialSpend),initialBuffer:parseFloat(form.initialBuffer),
+      shortcuts:form.shortcuts.filter(s=>s.label&&s.amount).map(s=>({...s,amount:parseFloat(s.amount)}))});
+  };
+
+  return html`
+    <div style="height:100vh;overflow-y:auto;padding:calc(env(safe-area-inset-top,44px)+24px) 24px 60px">
+
+      <!-- Title -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <${Wallet} size=${14} color="#8B6FFF" />
+        <span style="font-size:11px;color:#8B6FFF;font-weight:600;letter-spacing:.12em;text-transform:uppercase">Monthly Budget</span>
+      </div>
+      <div style="font-size:32px;font-weight:900;letter-spacing:-.03em;margin-bottom:6px">Budget Setup</div>
+      <div style="font-size:14px;color:#555;margin-bottom:44px">Configure your spending period</div>
+
+      <!-- Period -->
+      <div class="section">
+        <div class="section-label">Period</div>
+        <div class="card" style="padding:0">
+          <div class="card-row">
+            <span style="font-size:14px;color:#666;width:54px;flex-shrink:0">Start</span>
+            <input type="date" value=${form.startDate} onInput=${e=>set('startDate',e.target.value)}
+              style="flex:1;background:none;border:none;padding:0;color:#fff;font-size:15px;outline:none;text-align:right" />
+          </div>
+          <div class="card-row">
+            <span style="font-size:14px;color:#666;width:54px;flex-shrink:0">End</span>
+            <input type="date" value=${form.endDate} min=${form.startDate} onInput=${e=>set('endDate',e.target.value)}
+              style="flex:1;background:none;border:none;padding:0;color:#fff;font-size:15px;outline:none;text-align:right" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Amounts -->
+      <div class="section">
+        <div class="section-label">Amounts</div>
+        <div class="card" style="padding:0">
+          ${[['Daily limit','dailyCap','15'],['Spend pool','initialSpend','420'],['Buffer','initialBuffer','210']].map(([lbl,key,ph],i)=>html`
+            <div key=${key} class="card-row">
+              <span style="font-size:14px;color:#666">${lbl}</span>
+              <div style="display:flex;align-items:center;gap:4px;margin-left:auto">
+                <span style="font-size:14px;color:#555">$</span>
+                <input type="number" placeholder=${ph} value=${form[key]} onInput=${e=>set(key,e.target.value)}
+                  style="background:none;border:none;padding:0;color:#fff;font-size:15px;font-weight:600;outline:none;text-align:right;width:80px" />
+              </div>
+            </div>`)}
+        </div>
+      </div>
+
+      <!-- Shortcuts -->
+      <div class="section">
+        <div class="section-label">Quick Shortcuts</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${form.shortcuts.map((s,i)=>html`
+            <div key=${i} class="card" style="padding:14px 16px;display:flex;gap:8px;align-items:center">
+              <input placeholder="Name" value=${s.label} onInput=${e=>setS(i,'label',e.target.value)}
+                style="flex:2;background:none;border:none;color:#fff;font-size:14px;outline:none;min-width:0" />
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.07);flex-shrink:0"></div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="font-size:13px;color:#555">$</span>
+                <input type="number" placeholder="0.00" value=${s.amount} onInput=${e=>setS(i,'amount',e.target.value)}
+                  style="width:60px;background:none;border:none;color:#fff;font-size:14px;font-weight:600;outline:none;text-align:right" />
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.07);flex-shrink:0"></div>
+              <select value=${s.pool} onChange=${e=>setS(i,'pool',e.target.value)}
+                style="background:none;border:none;color:#888;font-size:13px;outline:none;flex-shrink:0">
+                <option value="spend">Spend</option><option value="buffer">Buffer</option>
+              </select>
+              <button onClick=${()=>setForm(p=>({...p,shortcuts:p.shortcuts.filter((_,j)=>j!==i)}))}
+                style="background:none;border:none;padding:4px;color:#444;cursor:pointer;display:flex;flex-shrink:0">
+                <${X} size=${15} />
+              </button>
+            </div>`)}
+          <button onClick=${()=>setForm(p=>({...p,shortcuts:[...p.shortcuts,{label:'',amount:'',pool:'spend'}]}))}
+            style="background:none;border:1px dashed rgba(255,255,255,.1);border-radius:16px;padding:14px;color:#555;cursor:pointer;font-size:13px;width:100%">
+            + Add Shortcut
+          </button>
+        </div>
+      </div>
+
+      <button class="btn-primary" onClick=${save}>Get Started</button>
     </div>`;
 }
 
 // ── Root App ──────────────────────────────────────────────
-function App() {
-  const [cfg,    setCfg]    = useState(null);
-  const [txns,   setTxnsRaw] = useState([]);
-  const [screen, setScreen] = useState('main');
-  const [loaded, setLoaded] = useState(false);
-  const skipNext = useRef(false);
+function App(){
+  const [cfg,setCfg]=useState(null);
+  const [txns,setTxnsRaw]=useState([]);
+  const [tab,setTab]=useState(0);
+  const [showAdd,setShowAdd]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const [toast,setToast]=useState(null);
+  const skipNext=useRef(false);
 
-  // ── Firebase real-time listener
-  useEffect(() => {
-    const unsub = onSnapshot(DOC, snap => {
-      if (snap.exists()) {
-        const data = snap.data();
-        skipNext.current = true;
-        setCfg(data.config || null);
-        setTxnsRaw(data.transactions || []);
-        syncOK();
-      } else {
-        syncOK();
-      }
+  useEffect(()=>{
+    const unsub=onSnapshot(DOC,snap=>{
+      if(snap.exists()){const d=snap.data();skipNext.current=true;setCfg(d.config||null);setTxnsRaw(d.transactions||[]);}
       setLoaded(true);
-    }, err => { syncErr(); setLoaded(true); });
+    },()=>setLoaded(true));
     return unsub;
-  }, []);
+  },[]);
 
-  // ── Save to Firebase on change
-  const saveToFB = useCallback(async (newCfg, newTxns) => {
-    if (skipNext.current) { skipNext.current=false; return; }
-    syncing();
-    try {
-      await setDoc(DOC, { config: newCfg, transactions: newTxns });
-      syncOK();
-    } catch { syncErr(); }
-  }, []);
-
-  const saveConfig = newCfg => {
-    setCfg(newCfg);
-    saveToFB(newCfg, txns);
+  const flash=msg=>{setToast(msg);setTimeout(()=>setToast(null),2400);};
+  const save=useCallback(async(nc,nt)=>{
+    if(skipNext.current){skipNext.current=false;return;}
+    try{await setDoc(DOC,{config:nc,transactions:nt});}catch(e){}
+  },[]);
+  const saveCfg=nc=>{setCfg(nc);save(nc,txns);};
+  const setTxns=useCallback(fn=>{
+    setTxnsRaw(prev=>{const next=typeof fn==='function'?fn(prev):fn;save(cfg,next);return next;});
+  },[cfg,save]);
+  const addTxn=(lbl,amt,pool,date)=>{
+    const today=localDateKey();
+    const txn={id:Date.now(),date,time:date===today?getTime():'',label:lbl,amount:parseFloat(parseFloat(amt).toFixed(2)),pool};
+    setTxns(prev=>[...prev,txn].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id));
+    flash(`Saved · ${lbl} ${fmt(txn.amount)}`);
   };
+  const delTxn=txn=>{setTxns(prev=>prev.filter(t=>t.id!==txn.id));flash(`Removed · ${txn.label}`);};
+  const reset=()=>{if(!window.confirm('Delete all data?'))return;setCfg(null);setTxnsRaw([]);save(null,[]);};
 
-  const setTxns = useCallback(fn => {
-    setTxnsRaw(prev => {
-      const next = typeof fn==='function' ? fn(prev) : fn;
-      saveToFB(cfg, next);
-      return next;
-    });
-  }, [cfg, saveToFB]);
-
-  const reset = () => {
-    if (!window.confirm('모든 데이터를 삭제할까요?')) return;
-    setCfg(null); setTxnsRaw([]);
-    saveToFB(null, []);
-    setScreen('main');
-  };
-
-  if (!loaded) return html`
-    <div style=${{background:'#0C0E14',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style=${{color:'#444',fontSize:13}}>동기화 중...</div>
+  if(!loaded)return html`
+    <div style="background:#0D0D14;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+      <${Wallet} size=${30} color="#8B6FFF" />
+      <div style="font-size:13px;color:#444;letter-spacing:.04em">Syncing...</div>
     </div>`;
 
-  if (!cfg) return html`<${SetupScreen} onSave=${saveConfig} />`;
-  if (screen==='settings') return html`<${SettingsScreen} cfg=${cfg} onBack=${()=>setScreen('main')} onReset=${reset} />`;
-  return html`<${MainScreen} cfg=${cfg} txns=${txns} setTxns=${setTxns} onSettings=${()=>setScreen('settings')} />`;
+  if(!cfg)return html`<${SetupScreen} onSave=${saveCfg} />`;
+
+  const tabs=[
+    {Icon:LayoutDashboard,label:'Home',id:0},
+    {Icon:ClipboardList,label:'Records',id:1},
+    null,
+    {Icon:Settings,label:'Settings',id:3},
+  ];
+
+  return html`
+    <div style="height:100vh;background:#0D0D14">
+      ${tab===0&&html`<${HomeScreen} cfg=${cfg} txns=${txns} />`}
+      ${tab===1&&html`<${RecordsScreen} txns=${txns} onDelete=${delTxn} />`}
+      ${tab===3&&html`<${SettingsScreen} cfg=${cfg} onReset=${reset} />`}
+
+      <div class="tab-bar">
+        ${tabs.map((t,i)=>t===null?html`
+          <button class="add-btn" onClick=${()=>setShowAdd(true)} key="add">
+            <${Plus} size=${22} color="#fff" />
+          </button>`:html`
+          <button key=${t.id} class="tab-item ${tab===t.id?'active':''}" onClick=${()=>setTab(t.id)}>
+            <${t.Icon} size=${21} />
+            <span class="tab-label">${t.label}</span>
+          </button>`)}
+      </div>
+
+      ${showAdd&&html`<${AddSheet} cfg=${cfg} onAdd=${addTxn} onClose=${()=>setShowAdd(false)} />`}
+
+      ${toast&&html`
+        <div style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(20,20,30,.96);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:10px 18px;font-size:13px;white-space:nowrap;z-index:300;display:flex;align-items:center;gap:7px">
+          <${Check} size=${13} color="#22D3A5" />${toast}
+        </div>`}
+    </div>`;
 }
 
 render(html`<${App} />`, document.getElementById('app'));
-
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 </script>
 </body>
 </html>
